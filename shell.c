@@ -29,6 +29,8 @@ static int do_redir(token_t *token, int ntokens, int *inputp, int *outputp) {
 
   for (int i = 0; i < ntokens; i++) {
     /* TODO: Handle tokens and open files as requested. */
+    (void)mode;
+    (void)MaybeClose;
   }
 
   token[n] = NULL;
@@ -67,6 +69,7 @@ static pid_t do_stage(pid_t pgid, sigset_t *mask, int input, int output,
     app_error("ERROR: Command line is not well formed!");
 
   /* TODO: Start a subprocess and make sure it's moved to a process group. */
+  pid_t pid = Fork();
 
   return pid;
 }
@@ -96,6 +99,11 @@ static int do_pipeline(token_t *token, int ntokens, bool bg) {
 
   /* TODO: Start pipeline subprocesses, create a job and monitor it.
    * Remember to close unused pipe ends! */
+  (void)input;
+  (void)job;
+  (void)pid;
+  (void)pgid;
+  (void)do_stage;
 
   Sigprocmask(SIG_SETMASK, &mask, NULL);
   return exitcode;

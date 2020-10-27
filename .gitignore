@@ -3,6 +3,7 @@
 *.so
 *.a
 .*.d
+shell
 
 # Python
 *.pyc
