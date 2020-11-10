@@ -9,4 +9,6 @@ jobs:
     container: cahirwpz/ii-so:latest
     steps:
       - uses: actions/checkout@v2
+      - name: Run clang-format
+        run: ./run-clang-format.sh
       - uses: education/autograding@v1

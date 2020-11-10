@@ -701,14 +701,14 @@
 #define RB_NEGINF -1
 #define RB_INF 1
 
-#define RB_INSERT(name, x, y) CONCAT(name,_RB_INSERT(x, y))
-#define RB_REMOVE(name, x, y) CONCAT(name,_RB_REMOVE(x, y))
-#define RB_FIND(name, x, y) CONCAT(name,_RB_FIND(x, y))
-#define RB_NFIND(name, x, y) CONCAT(name,_RB_NFIND(x, y))
-#define RB_NEXT(name, x, y) CONCAT(name,_RB_NEXT(y))
-#define RB_PREV(name, x, y) CONCAT(name,_RB_PREV(y))
-#define RB_MIN(name, x) CONCAT(name,_RB_MINMAX(x, RB_NEGINF))
-#define RB_MAX(name, x) CONCAT(name,_RB_MINMAX(x, RB_INF))
+#define RB_INSERT(name, x, y) CONCAT(name, _RB_INSERT(x, y))
+#define RB_REMOVE(name, x, y) CONCAT(name, _RB_REMOVE(x, y))
+#define RB_FIND(name, x, y) CONCAT(name, _RB_FIND(x, y))
+#define RB_NFIND(name, x, y) CONCAT(name, _RB_NFIND(x, y))
+#define RB_NEXT(name, x, y) CONCAT(name, _RB_NEXT(y))
+#define RB_PREV(name, x, y) CONCAT(name, _RB_PREV(y))
+#define RB_MIN(name, x) CONCAT(name, _RB_MINMAX(x, RB_NEGINF))
+#define RB_MAX(name, x) CONCAT(name, _RB_MINMAX(x, RB_INF))
 
 #define RB_FOREACH(x, name, head)                                              \
   for ((x) = RB_MIN(name, head); (x) != NULL; (x) = name##_RB_NEXT(x))
