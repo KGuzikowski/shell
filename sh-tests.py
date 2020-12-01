@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 
+# You MUST NOT modify this file without author's consent.
+# Doing so is considered cheating!
+
 import os
-import re
-import errno
-import time
-import subprocess
 import pexpect
 import unittest
-import sys
 import tempfile
 import random
 
@@ -15,21 +13,8 @@ import random
 class ShellTester():
     def setUp(self):
         self.child = pexpect.spawn('./shell')
-        self.child.setecho(False)
-
-        self.strace = pexpect.spawn(
-                'strace -f -q '
-                '-e trace=ioctl,clone,setpgid,execve,dup2,openat,close '
-                '-p ' + str(self.child.pid), encoding='utf-8')
-        # self.strace.logfile = sys.stderr
-
-        time.sleep(0.1)
-
-        self.sendline(' ')
+        # self.child.interact()
         self.expect('#')
-
-    def tearDown(self):
-        self.strace.close()
 
     @property
     def pid(self):
@@ -48,38 +33,40 @@ class ShellTester():
         self.child.wait()
 
     def expect_syscall(self, name, caller=None):
-        self.strace.expect('(\[pid\s+\d+\])? ?%s\([^)]+\) = (-?\d+)\r\n' % name)
-        pid, result = self.strace.match.groups()
-        if pid is None:
-            pid = self.child.pid
-        else:
-            mo = re.match(r'\[pid\s+(\d+)\]', pid)
-            assert mo is not None
-            pid = int(mo.group(1))
+        self.expect('\[(\d+):(\d+)\] %s\([^)]*\)([^\r]*)\r\n' % name)
+        pid, pgrp, result = self.child.match.groups()
+        pid = int(pid)
+        pgrp = int(pgrp)
+        result = result.decode('utf-8')
         if caller is not None:
             self.assertEqual(caller, pid)
-        return int(result)
+        if not result:
+            return 0
+        if result.startswith(' = '):
+            return int(result[3:])
+        if result.startswith(' -> '):
+            d = {}
+            for item in result[5:-1].split(', '):
+                k, v = item.split('=', 1)
+                try:
+                    d[k] = int(v)
+                except ValueError:
+                    d[k] = v
+            return d
+        raise RuntimeError
 
     def expect_fork(self, parent=None):
-        return self.expect_syscall('clone', caller=parent)
+        return self.expect_syscall('fork', caller=parent)
 
-    def expect_execve(self, pid=None, error=None):
-        self.assertEqual(self.expect_syscall('execve', caller=pid), error)
+    def expect_execve(self, child=None):
+        self.expect_syscall('execve', caller=child)
 
-    def expect_sigchld(self, pid=None, status=None):
-        self.strace.expect('--- SIGCHLD {([^}]+)} ---\r\n')
-        siginfo = {}
-        for pair in self.strace.match.group(1).split(', '):
-            k, v = pair.split('=')
-            try:
-                siginfo[k] = int(v)
-            except ValueError:
-                siginfo[k] = v
-        if pid is not None:
-            self.assertEqual(siginfo['si_pid'], pid)
-        if status is not None:
-            self.assertEqual(siginfo['si_status'], status)
-        return siginfo
+    def expect_waitpid(self, pid=None, status=None):
+        while True:
+            res = self.expect_syscall('waitpid')
+            if res.get('pid', 0) == pid:
+                break
+        self.assertEqual(status, res.get('status', -1))
 
 
 class TestShell(ShellTester, unittest.TestCase):
@@ -99,7 +86,7 @@ class TestShell(ShellTester, unittest.TestCase):
 
         self.sendline('wc -l ' + inf.name + ' >' + outf.name)
         child = self.expect_fork(parent=self.pid)
-        self.expect_execve(pid=child, error=0)
+        self.expect_execve(child=child)
         self.do_quit()
 
         line = outf.read()
@@ -111,13 +98,14 @@ class TestShell(ShellTester, unittest.TestCase):
     def test_basic(self):
         self.sendline('sleep 10')
         child = self.expect_fork(parent=self.pid)
-        self.expect_execve(pid=child, error=0)
+        self.expect_execve(child=child)
         self.sendintr()
-        self.expect_sigchld(pid=child, status='SIGINT')
+        self.expect_waitpid(pid=child, status='SIGINT')
         self.do_quit()
 
 
 if __name__ == '__main__':
     os.environ['PATH'] = '/usr/bin:/bin'
+    os.environ['LD_PRELOAD'] = './trace.so'
 
     unittest.main()
