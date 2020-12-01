@@ -143,7 +143,8 @@ int main(int argc, char *argv[]) {
   sigemptyset(&sigchld_mask);
   sigaddset(&sigchld_mask, SIGCHLD);
 
-  Setpgid(0, 0);
+  if (getsid(0) != getpgid(0))
+    Setpgid(0, 0);
 
   initjobs();
 
