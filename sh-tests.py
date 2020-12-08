@@ -19,16 +19,23 @@ class ShellTesterSimple():
         self.expect('#')
 
     def lines_before(self):
-        return self.child.before.decode('utf-8').strip('\r\n').split('\r\n')
+        return [line.strip()
+                for line in self.child.before.decode('utf-8').split('\r\n')
+                if len(line)]
 
     def lines_after(self):
-        return self.child.after.decode('utf-8').strip('\r\n').split('\r\n')
+        return [line.strip()
+                for line in self.child.after.decode('utf-8').split('\r\n')
+                if len(line)]
 
     def sendline(self, s):
         self.child.sendline(s)
 
     def sendintr(self):
         self.child.sendintr()
+
+    def sendcontrol(self, ch):
+        self.child.sendcontrol(ch)
 
     def expect(self, s):
         self.child.expect(s)
@@ -43,6 +50,11 @@ class ShellTesterSimple():
     def wait(self):
         self.child.wait()
 
+    def execute(self, cmd):
+        self.sendline(cmd)
+        self.expect('#')
+        return self.lines_before()
+
 
 class ShellTester(ShellTesterSimple):
     def setUp(self):
@@ -55,73 +67,78 @@ class ShellTester(ShellTesterSimple):
         del os.environ['LD_PRELOAD']
 
     def expect_syscall(self, name, caller=None):
-        self.expect('\[(\d+):(\d+)\] %s\([^)]*\)([^\r]*)\r\n' % name)
-        pid, pgrp, result = self.child.match.groups()
+        self.expect('\[(\d+):(\d+)\] %s\(([^)]*)\)([^\r]*)\r\n' % name)
+
+        pid, pgrp, args, retval = self.child.match.groups()
         pid = int(pid)
         pgrp = int(pgrp)
-        result = result.decode('utf-8')
+        args = args.decode('utf-8')
+        retval = retval.decode('utf-8')
+        result = {'pid': pid, 'pgrp': pgrp, 'args': []}
+
+        if args not in ['...', '']:
+            for arg in args.split(', '):
+                try:
+                    result['args'].append(int(arg))
+                except ValueError:
+                    result['args'].append(arg)
+
         if caller is not None:
             self.assertEqual(caller, pid)
-        if not result:
-            return 0
-        if result.startswith(' = '):
-            return int(result[3:])
-        if result.startswith(' -> '):
-            d = {}
-            for item in result[5:-1].split(', '):
+        if not retval:
+            return result
+        if retval.startswith(' = '):
+            result['retval'] = int(retval[3:])
+            return result
+        if retval.startswith(' -> '):
+            items = retval[5:-1].strip()
+            if not items:
+                return result
+            for item in items.split(', '):
                 k, v = item.split('=', 1)
                 try:
-                    d[k] = int(v)
+                    result[k] = int(v)
                 except ValueError:
-                    d[k] = v
-            return d
+                    result[k] = v
+            return result
         raise RuntimeError
 
     def expect_fork(self, parent=None):
         return self.expect_syscall('fork', caller=parent)
 
     def expect_execve(self, child=None):
-        self.expect_syscall('execve', caller=child)
+        return self.expect_syscall('execve', caller=child)
 
     def expect_waitpid(self, pid=None, status=None):
         while True:
             res = self.expect_syscall('waitpid')
-            if res.get('pid', 0) == pid:
+            if res['pid'] == pid and res.get('status', None) == status:
                 break
         self.assertEqual(status, res.get('status', -1))
 
-    def expect_exit(self, status=None):
-        child = self.expect_fork(parent=self.pid)
-        self.expect_execve(child=child)
-        self.expect_waitpid(pid=child, status=status)
-        self.expect('#')
+    def expect_spawn(self):
+        result = self.expect_fork(parent=self.pid)
+        self.expect_execve(child=result['retval'])
+        return result
 
 
 class TestShellSimple(ShellTesterSimple, unittest.TestCase):
-    def execute(self, cmd):
-        self.sendline(cmd)
-        self.expect('#')
-        return self.lines_before()
-
     def test_redir_1(self):
         nlines = 587
         inf_name = 'include/queue.h'
 
         # 'wc -l include/queue.h > out'
         with NamedTemporaryFile(mode='r') as outf:
-            self.sendline('wc -l ' + inf_name + ' >' + outf.name)
-            self.expect('#')
+            self.execute('wc -l ' + inf_name + ' >' + outf.name)
             self.assertEqual(int(outf.read().split()[0]), nlines)
 
         # 'wc -l < include/queue.h'
-        self.sendline('wc -l < ' + inf_name)
-        self.expect(str(nlines))
-        self.expect('#')
+        lines = self.execute('wc -l < ' + inf_name)
+        self.assertEqual(lines[0], str(nlines))
 
         # 'wc -l < include/queue.h > out'
         with NamedTemporaryFile(mode='r') as outf:
-            self.sendline('wc -l < ' + inf_name + ' >' + outf.name)
-            self.expect('#')
+            self.execute('wc -l < ' + inf_name + ' >' + outf.name)
             self.assertEqual(int(outf.read().split()[0]), nlines)
 
     def test_redir_2(self):
@@ -134,28 +151,25 @@ class TestShellSimple(ShellTesterSimple, unittest.TestCase):
                 inf.flush()
 
                 # 'wc -l < random-text > out'
-                self.sendline('wc -l ' + inf.name + ' >' + outf.name)
-                self.expect('#')
+                self.execute('wc -l ' + inf.name + ' >' + outf.name)
                 self.assertEqual(outf.read().split()[0], str(n))
 
     def test_pipeline_1(self):
-        self.sendline('grep LIST include/queue.h | wc -l')
-        self.expect('46')
-        self.expect('#')
+        lines = self.execute('grep LIST include/queue.h | wc -l')
+        self.assertEqual(lines[0], '46')
 
     def test_pipeline_2(self):
-        self.sendline('cat include/queue.h | cat | grep LIST | cat | wc -l')
-        self.expect('46')
-        self.expect('#')
+        lines = self.execute(
+                'cat include/queue.h | cat | grep LIST | cat | wc -l')
+        self.assertEqual(lines[0], '46')
 
-    def test_pipeline_2(self):
+    def test_pipeline_3(self):
         with NamedTemporaryFile(mode='r') as outf:
-            self.sendline(
+            self.execute(
                     'cat < include/queue.h | grep LIST | wc -l > ' + outf.name)
-            self.expect('#')
             self.assertEqual(int(outf.read().split()[0]), 46)
 
-    def test_leaks(self):
+    def test_fd_leaks(self):
         # 'ls -l /proc/self/fd'
         lines = self.execute('ls -l /proc/self/fd')
         self.assertEqual(len(lines), 5)
@@ -240,19 +254,92 @@ class TestShellSimple(ShellTesterSimple, unittest.TestCase):
         self.sendline('jobs')
         self.expect_exact("[1] killed 'sleep 1000' by signal 15")
 
+    def test_kill_at_quit(self):
+        self.sendline('sleep 1000 &')
+        self.expect_exact("[1] running 'sleep 1000'")
+        self.sendline('sleep 2000 &')
+        self.expect_exact("[2] running 'sleep 2000'")
+        self.sendline('jobs')
+        self.expect_exact("[1] running 'sleep 1000'")
+        self.expect_exact("[2] running 'sleep 2000'")
+        self.sendcontrol('d')
+        self.expect_exact("[1] killed 'sleep 1000' by signal 15")
+        self.expect_exact("[2] killed 'sleep 2000' by signal 15")
+
 
 class TestShellWithSyscalls(ShellTester, unittest.TestCase):
+    def stty(self):
+        with NamedTemporaryFile(mode='r') as sttyf:
+            self.execute('stty -a')
+            return sttyf.read()
+
     def test_quit(self):
         self.sendline('quit')
         self.wait()
 
     def test_sigint(self):
         self.sendline('sleep 10')
-        child = self.expect_fork(parent=self.pid)
-        self.expect_execve(child=child)
+        child = self.expect_spawn()['retval']
         self.sendintr()
         self.expect_waitpid(pid=child, status='SIGINT')
         self.expect('#')
+
+    def test_sigtstp(self):
+        self.sendline('cat')
+        child = self.expect_spawn()['retval']
+        self.sendcontrol('z')
+        self.expect_waitpid(pid=child, status='SIGTSTP')
+        self.sendline('fg 1')
+        self.expect_waitpid(pid=child, status='SIGCONT')
+        self.sendcontrol('d')
+        self.expect('#')
+
+    def test_terminate_tstped(self):
+        self.sendline('cat')
+        child = self.expect_spawn()['retval']
+        self.sendcontrol('z')
+        self.expect_waitpid(pid=child, status='SIGTSTP')
+        self.sendline('kill %1')
+        time.sleep(0.1)
+        self.expect_waitpid(pid=child, status='SIGCONT')
+        self.expect_waitpid(pid=child, status='SIGTERM')
+        self.sendline('jobs')
+        self.expect_exact("[1] killed 'cat' by signal 15")
+
+    def test_terminate_ttined(self):
+        self.sendline('cat &')
+        child = self.expect_spawn()['retval']
+        self.expect_waitpid(pid=child, status='SIGTTIN')
+        self.sendline('kill %1')
+        time.sleep(0.1)
+        self.expect_waitpid(pid=child, status='SIGCONT')
+        self.expect_waitpid(pid=child, status='SIGTERM')
+        self.sendline('jobs')
+        self.expect_exact("[1] killed 'cat' by signal 15")
+
+    def test_termattr_1(self):
+        stty_before = self.stty()
+        self.sendline('less shell.c')
+        child = self.expect_spawn()['retval']
+        self.sendline('q')
+        self.expect_waitpid(pid=child, status=0)
+        self.expect('#')
+        stty_after = self.stty()
+        self.assertEqual(stty_before, stty_after)
+
+    def test_termattr_2(self):
+        stty_before = self.stty()
+        self.sendline('less shell.c')
+        child = self.expect_spawn()['retval']
+        time.sleep(0.25)
+        self.sendcontrol('z')
+        self.expect_waitpid(pid=child, status='SIGTSTP')
+        self.sendline('kill %1')
+        self.expect_waitpid(pid=child, status='SIGTERM')
+        self.sendline('jobs')
+        self.expect_exact("[1] killed 'less shell.c' by signal 15")
+        stty_after = self.stty()
+        self.assertEqual(stty_before, stty_after)
 
 
 if __name__ == '__main__':
