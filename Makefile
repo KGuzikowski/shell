@@ -12,7 +12,7 @@ all: shell trace.so
 shell: shell.o command.o lexer.o jobs.o
 
 test:
-	python3 sh-tests.py
+	python3 sh-tests.py -v
 
 trace.so: trace.c
 	gcc -Wall -O2 -shared -fpic -o trace.so trace.c -ldl
