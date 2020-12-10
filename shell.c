@@ -87,6 +87,7 @@ static int do_job(token_t *token, int ntokens, bool bg) {
       Dup2(output, STDOUT_FILENO);
       MaybeClose(&output);
     }
+    
     if (input != -1) {
       Dup2(input, STDIN_FILENO);
       MaybeClose(&input);
