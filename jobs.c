@@ -183,7 +183,7 @@ bool resumejob(int j, int bg, sigset_t *mask) {
     movejob(j, FG);
     monitorjob(mask);
   }
-  
+
   return true;
 }
 
@@ -196,7 +196,8 @@ bool killjob(int j) {
   /* TODO: I love the smell of napalm in the morning. */
   /* Resume stopped jobs to kill them. */
   killpg(jobs[j].pgid, SIGTERM);
-  killpg(jobs[j].pgid, SIGCONT); /*This will make sure that stopped processes get killed.*/
+  killpg(jobs[j].pgid,
+         SIGCONT); /*This will make sure that stopped processes get killed.*/
 
   return true;
 }

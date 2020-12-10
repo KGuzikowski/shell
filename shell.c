@@ -124,7 +124,7 @@ static pid_t do_stage(pid_t pgid, sigset_t *mask, int input, int output,
 
   /* TODO: Start a subprocess and make sure it's moved to a process group. */
   pid_t pid = Fork();
-   if (0 == pid) {
+  if (0 == pid) {
     /* In the child*/
     setpgid(0, pgid);
     signal(SIGCHLD, SIG_DFL);
