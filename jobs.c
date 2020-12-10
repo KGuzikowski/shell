@@ -26,8 +26,40 @@ static void sigchld_handler(int sig) {
   int status;
   /* TODO: Change state (FINISHED, RUNNING, STOPPED) of processes and jobs.
    * Bury all children that finished saving their status in jobs. */
-  (void)status;
-  (void)pid;
+  while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED)) > 0) {
+    for (size_t i = 0; i < njobmax; i++) {
+      job_t *job = &jobs[i];
+      for (size_t j = 0; j < job->nproc; j++) {
+        proc_t *proc = &job->proc[j];
+        if (proc->pid == pid) {
+          if (WIFEXITED(status) || WIFSIGNALED(status)) {
+            proc->state = FINISHED;
+          } else if (WIFCONTINUED(status)) {
+            proc->state = RUNNING;
+          } else if (WIFSTOPPED(status)) {
+            proc->state = STOPPED;
+          }
+        }
+      }
+      bool is_job_running = false;
+      bool is_job_stopped = false;
+      for (size_t j = 0; j < jobs->nproc; j++) {
+        proc_t *proc = &job->proc[j];
+        if (proc->state == RUNNING) {
+          is_job_running = true;
+        } else if (proc->state == STOPPED && !is_job_running) {
+          is_job_stopped = true;
+        }
+      }
+      if (is_job_running) {
+        job->state = RUNNING;
+      } else if (is_job_stopped) {
+        job->state = STOPPED;
+      } else {
+        job->state = FINISHED;
+      }
+    }
+  }
   errno = old_errno;
 }
 
@@ -114,7 +146,10 @@ int jobstate(int j, int *statusp) {
   int state = job->state;
 
   /* TODO: Handle case where job has finished. */
-  (void)exitcode;
+  if (state == FINISHED) {
+    *statusp = exitcode(job);
+    deljob(job);
+  }
 
   return state;
 }
@@ -137,8 +172,18 @@ bool resumejob(int j, int bg, sigset_t *mask) {
     return false;
 
   /* TODO: Continue stopped job. Possibly move job to foreground slot. */
-  (void)movejob;
+  if (jobs[j].state == RUNNING && bg) {
+    return true;
+  }
 
+  killpg(jobs[j].pgid, SIGCONT);
+  jobs[j].state = RUNNING;
+
+  if (!bg && jobs[FG].pgid == 0) {
+    movejob(j, FG);
+    monitorjob(mask);
+  }
+  
   return true;
 }
 
@@ -149,6 +194,9 @@ bool killjob(int j) {
   debug("[%d] killing '%s'\n", j, jobs[j].command);
 
   /* TODO: I love the smell of napalm in the morning. */
+  /* Resume stopped jobs to kill them. */
+  killpg(jobs[j].pgid, SIGTERM);
+  killpg(jobs[j].pgid, SIGCONT); /*This will make sure that stopped processes get killed.*/
 
   return true;
 }
@@ -160,7 +208,19 @@ void watchjobs(int which) {
       continue;
 
     /* TODO: Report job number, state, command and exit code or signal. */
-    (void)deljob;
+    int state, exitcode = -1;
+    /* if jobs is FINISHED it will be cleaned in jobstate */
+    state = jobstate(j, &exitcode);
+    if (which == ALL) {
+      /* As do_jobs say, displaying FINISHED jobs is not wanted. */
+      if (state == RUNNING) {
+        msg("[%d], eunning %s\n", j, jobs[j].command);
+      } else if (state == STOPPED) {
+        msg("[%d], stopped %s\n", j, jobs[j].command);
+      }
+    } else if (which == FINISHED && state == FINISHED) {
+      msg("[%d], killed %s by signal %d\n", j, jobs[j].command, exitcode);
+    }
   }
 }
 
@@ -170,8 +230,23 @@ int monitorjob(sigset_t *mask) {
   int exitcode = 0, state;
 
   /* TODO: Following code requires use of Tcsetpgrp of tty_fd. */
-  (void)exitcode;
-  (void)state;
+  /* Save current pgid of foreground job. */
+  pid_t pgid = Tcgetpgrp(tty_fd);
+  Tcsetpgrp(tty_fd, jobs[FG].pgid);
+  while (true) {
+    state = jobstate(FG, &exitcode);
+    if (state == STOPPED) {
+      int new_bg_index = allocjob();
+      movejob(FG, new_bg_index);
+      msg("\n[%d] suspended '%s'\n", new_bg_index, jobs[new_bg_index].command);
+      break;
+    } else if (state == FINISHED) {
+      break;
+    }
+    Sigsuspend(mask);
+  }
+  /* Give controll to the saved foreground job. */
+  Tcsetpgrp(tty_fd, pgid);
 
   return exitcode;
 }
@@ -200,6 +275,14 @@ void shutdownjobs(void) {
   Sigprocmask(SIG_BLOCK, &sigchld_mask, &mask);
 
   /* TODO: Kill remaining jobs and wait for them to finish. */
+  for (int i = 0; i < njobmax; i++) {
+    if (jobs[i].pgid) {
+      killjob(i);
+    }
+    while (FINISHED != jobs[i].state) {
+      sigsuspend(&mask);
+    }
+  }
 
   watchjobs(FINISHED);
 

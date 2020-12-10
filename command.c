@@ -109,9 +109,24 @@ int builtin_command(char **argv) {
 
 noreturn void external_command(char **argv) {
   const char *path = getenv("PATH");
-
   if (!index(argv[0], '/') && path) {
-    /* TODO: For all paths in PATH construct an absolute path and execve it. */
+    /* TODO: For all paths in PATH construct an absolute path and execve it. -
+     * done*/
+    /*While not \0 (end of string) do sth...*/
+    while (*path != '\0') {
+      /*look for : in string to split sting there.*/
+      int i = strcspn(path, ":");
+      if (i == strlen(path)) {
+        break;
+      }
+      char *first_path = strndup(path, i);
+      strapp(&first_path, "/");
+      strapp(&first_path, argv[0]);
+      execve(first_path, argv, environ);
+      /*free already checked part of string*/
+      free(first_path);
+      path += i + 1;
+    }
   } else {
     (void)execve(argv[0], argv, environ);
   }
