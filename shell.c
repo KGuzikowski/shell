@@ -30,6 +30,7 @@ static int do_redir(token_t *token, int ntokens, int *inputp, int *outputp) {
   for (int i = 0; i < ntokens; i++) {
     /* TODO: Handle tokens and open files as requested. - done */
     if (token[i] == T_OUTPUT) {
+      MaybeClose(outputp);
       *outputp = open(token[i + 1], O_WRONLY | O_CREAT, S_IRWXU);
       token[i] = T_NULL;
       token[i + 1] = T_NULL;
@@ -38,6 +39,7 @@ static int do_redir(token_t *token, int ntokens, int *inputp, int *outputp) {
        * Also we have already removed it. */
       i++;
     } else if (token[i] == T_INPUT) {
+      MaybeClose(inputp);
       *inputp = open(token[i + 1], O_RDONLY);
       token[i] = T_NULL;
       token[i + 1] = T_NULL;
@@ -48,7 +50,6 @@ static int do_redir(token_t *token, int ntokens, int *inputp, int *outputp) {
     } else if (mode == NULL) {
       n++; /* no redirection operators so let's increment n */
     }
-    (void)MaybeClose;
   }
 
   token[n] = NULL;
@@ -91,6 +92,10 @@ static int do_job(token_t *token, int ntokens, bool bg) {
       MaybeClose(&input);
     }
 
+    if ((exitcode = builtin_command(token)) >= 0) {
+      exit(exitcode);
+    }
+    
     external_command(token);
   }
   /* Parent code:
@@ -179,44 +184,48 @@ static int do_pipeline(token_t *token, int ntokens, bool bg) {
 
   /* TODO: Start pipeline subprocesses, create a job and monitor it.
    * Remember to close unused pipe ends! */
-  int j = 0;
-  for (int i = 0; i < ntokens; i += j + 1) {
-    for (j = 0; token[i + j] != NULL && T_PIPE != token[i + j]; j++) {
-      continue;
+  int *cmds = malloc(sizeof(int));
+  cmds[0] = 0;
+  int numberOfCommands = 1;
+  for (int i = 0; i < ntokens; i++) {
+    if (token[i] == T_PIPE) {
+      numberOfCommands++;
+      cmds = realloc(cmds, sizeof(int) * numberOfCommands);
+      cmds[numberOfCommands - 1] = i + 1;
     }
-
-    token[i + j] = NULL;
-
-    if (i + j < ntokens) {
-      mkpipe(&next_input, &output);
-    }
-
-    pid = do_stage(pgid, &mask, input, output, token + i, j);
-
-    if (0 == pgid) {
-      pgid = pid;
-      job = addjob(pgid, bg);
-    }
-
-    if (output >= 0) {
-      MaybeClose(&output);
-    }
-
-    if (input >= 0) {
-      MaybeClose(&input);
-    }
-
-    input = next_input;
-    output = -1;
-
-    addproc(job, pid, token + i);
   }
-
+  int *cmdsLen = malloc((numberOfCommands) * sizeof(int));
+  for (int i = 0; i < numberOfCommands; i++) {
+    if (i == numberOfCommands - 1) {
+      cmdsLen[i] = ntokens - cmds[i];
+    } else
+      cmdsLen[i] = cmds[i + 1] - cmds[i] - 1;
+  }
+ 
+  pid = do_stage(pgid, &mask, input, output, token, cmdsLen[0]);
+  MaybeClose(&output);
+  pgid = pid;
+  job = addjob(pgid, bg);
+  addproc(job, pid, &token[cmds[0]]);
+ 
+  input = next_input;
+  for (int i = 1; i < numberOfCommands; i++) {
+    if (i != numberOfCommands - 1)
+      mkpipe(&next_input, &output);
+    pid = do_stage(pgid, &mask, input, output, &token[cmds[i]], cmdsLen[i]);
+    MaybeClose(&input);
+    MaybeClose(&output);
+    addproc(job, pid, &token[cmds[i]]);
+    input = next_input;
+  }
+ 
   if (!bg) {
     exitcode = monitorjob(&mask);
   } else {
-    msg("[%d] running '%s' %d\n", job, jobcmd(job), pgid);
+    msg("[%d] running '%s'\n", job, jobcmd(job));
   }
+  free(cmds);
+  free(cmdsLen);
 
   Sigprocmask(SIG_SETMASK, &mask, NULL);
   return exitcode;

@@ -27,6 +27,8 @@ static void sigchld_handler(int sig) {
   /* TODO: Change state (FINISHED, RUNNING, STOPPED) of processes and jobs.
    * Bury all children that finished saving their status in jobs. */
   while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED)) > 0) {
+    bool done = false;
+    size_t job_no = 0;
     for (size_t i = 0; i < njobmax; i++) {
       job_t *job = &jobs[i];
       for (size_t j = 0; j < job->nproc; j++) {
@@ -39,25 +41,37 @@ static void sigchld_handler(int sig) {
           } else if (WIFSTOPPED(status)) {
             proc->state = STOPPED;
           }
+          proc->exitcode = status;
+          done = true;
+          job_no = i;
+          break;
+        }
+        if (done) {
+          break;
         }
       }
-      bool is_job_running = false;
-      bool is_job_stopped = false;
-      for (size_t j = 0; j < jobs->nproc; j++) {
-        proc_t *proc = &job->proc[j];
-        if (proc->state == RUNNING) {
-          is_job_running = true;
-        } else if (proc->state == STOPPED && !is_job_running) {
-          is_job_stopped = true;
-        }
+    }
+
+    bool is_job_running = false;
+    bool is_job_stopped = false;
+    bool is_job_finished = false;
+    for (size_t j = 0; j < jobs[job_no].nproc; j++) {
+      proc_t *proc = &jobs[job_no].proc[j];
+      if (proc->state == RUNNING) {
+        is_job_running = true;
+      } else if (proc->state == STOPPED) {
+        is_job_stopped = true;
+      } else if (proc->state == FINISHED) {
+        is_job_finished = true;
       }
-      if (is_job_running) {
-        job->state = RUNNING;
-      } else if (is_job_stopped) {
-        job->state = STOPPED;
-      } else {
-        job->state = FINISHED;
-      }
+    }
+
+    if (is_job_finished && !is_job_running && !is_job_stopped) {
+      jobs[job_no].state = FINISHED;
+    } else if (is_job_stopped && !is_job_running && !is_job_finished) {
+      jobs[job_no].state = STOPPED;
+    } else if (is_job_running && !is_job_finished && !is_job_stopped) {
+      jobs[job_no].state = RUNNING;
     }
   }
   errno = old_errno;
@@ -176,12 +190,23 @@ bool resumejob(int j, int bg, sigset_t *mask) {
     return true;
   }
 
+  /* Give controll to the saved foreground job. */
   killpg(jobs[j].pgid, SIGCONT);
-  jobs[j].state = RUNNING;
 
   if (!bg && jobs[FG].pgid == 0) {
     movejob(j, FG);
+    Tcsetpgrp(tty_fd, jobs[FG].pgid);
+    Tcgetattr(tty_fd, &jobs[FG].tmodes);
+    if (jobs[0].state == STOPPED) {
+      killpg(jobs[FG].pgid, SIGCONT);
+      while (jobs[FG].state == STOPPED) {
+        Sigsuspend(mask);
+      }
+    }
+    msg("[%d] continue '%s'\n", j, jobcmd(FG));
     monitorjob(mask);
+  } else {
+    msg("[%d] continue '%s'\n", j, jobcmd(j));
   }
 
   return true;
@@ -191,7 +216,7 @@ bool resumejob(int j, int bg, sigset_t *mask) {
 bool killjob(int j) {
   if (j >= njobmax || jobs[j].state == FINISHED)
     return false;
-  debug("[%d] killing '%s'\n", j, jobs[j].command);
+  debug("[%d] killing '%s'\n", j, jobcmd(j));
 
   /* TODO: I love the smell of napalm in the morning. */
   /* Resume stopped jobs to kill them. */
@@ -211,17 +236,29 @@ void watchjobs(int which) {
     /* TODO: Report job number, state, command and exit code or signal. */
     int state, exitcode = -1;
     /* if jobs is FINISHED it will be cleaned in jobstate */
+    char *command = strdup(jobcmd(j));
     state = jobstate(j, &exitcode);
     if (which == ALL) {
       /* As do_jobs say, displaying FINISHED jobs is not wanted. */
       if (state == RUNNING) {
-        msg("[%d], eunning %s\n", j, jobs[j].command);
+        msg("[%d] running '%s'\n", j, command);
       } else if (state == STOPPED) {
-        msg("[%d], stopped %s\n", j, jobs[j].command);
+        msg("[%d] suspended '%s'\n", j, command);
+      } else if (state == FINISHED) {
+        if (WIFEXITED(exitcode)) {
+          msg("[%d] exited '%s', status=%d\n", j, command, WEXITSTATUS(exitcode));
+        } else {
+          msg("[%d] killed '%s' by signal %d\n", j, command, WTERMSIG(exitcode));
+        }
       }
     } else if (which == FINISHED && state == FINISHED) {
-      msg("[%d], killed %s by signal %d\n", j, jobs[j].command, exitcode);
+      if (WIFEXITED(exitcode)) {
+        msg("[%d] exited '%s', status=%d\n", j, command, WEXITSTATUS(exitcode));
+      } else {
+        msg("[%d] killed '%s' by signal %d\n", j, command, WTERMSIG(exitcode));
+      }
     }
+    free(command);
   }
 }
 
@@ -232,14 +269,13 @@ int monitorjob(sigset_t *mask) {
 
   /* TODO: Following code requires use of Tcsetpgrp of tty_fd. */
   /* Save current pgid of foreground job. */
-  pid_t pgid = Tcgetpgrp(tty_fd);
   Tcsetpgrp(tty_fd, jobs[FG].pgid);
   while (true) {
     state = jobstate(FG, &exitcode);
     if (state == STOPPED) {
       int new_bg_index = allocjob();
       movejob(FG, new_bg_index);
-      msg("\n[%d] suspended '%s'\n", new_bg_index, jobs[new_bg_index].command);
+      msg("[%d] suspended '%s'\n", new_bg_index, jobs[new_bg_index].command);
       break;
     } else if (state == FINISHED) {
       break;
@@ -247,7 +283,10 @@ int monitorjob(sigset_t *mask) {
     Sigsuspend(mask);
   }
   /* Give controll to the saved foreground job. */
-  Tcsetpgrp(tty_fd, pgid);
+  if (state != RUNNING) {
+    Tcsetpgrp(tty_fd, getpgid(FG));
+    Tcgetattr(tty_fd, &shell_tmodes);
+  }
 
   return exitcode;
 }
@@ -277,11 +316,10 @@ void shutdownjobs(void) {
 
   /* TODO: Kill remaining jobs and wait for them to finish. */
   for (int i = 0; i < njobmax; i++) {
-    if (jobs[i].pgid) {
-      killjob(i);
-    }
-    while (FINISHED != jobs[i].state) {
-      sigsuspend(&mask);
+      if(killjob(i)) {
+      while (FINISHED != jobs[i].state) {
+        sigsuspend(&mask);
+      }
     }
   }
 
