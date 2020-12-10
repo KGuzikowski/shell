@@ -95,7 +95,7 @@ static int do_job(token_t *token, int ntokens, bool bg) {
     if ((exitcode = builtin_command(token)) >= 0) {
       exit(exitcode);
     }
-    
+
     external_command(token);
   }
   /* Parent code:
@@ -201,13 +201,13 @@ static int do_pipeline(token_t *token, int ntokens, bool bg) {
     } else
       cmdsLen[i] = cmds[i + 1] - cmds[i] - 1;
   }
- 
+
   pid = do_stage(pgid, &mask, input, output, token, cmdsLen[0]);
   MaybeClose(&output);
   pgid = pid;
   job = addjob(pgid, bg);
   addproc(job, pid, &token[cmds[0]]);
- 
+
   input = next_input;
   for (int i = 1; i < numberOfCommands; i++) {
     if (i != numberOfCommands - 1)
@@ -218,7 +218,7 @@ static int do_pipeline(token_t *token, int ntokens, bool bg) {
     addproc(job, pid, &token[cmds[i]]);
     input = next_input;
   }
- 
+
   if (!bg) {
     exitcode = monitorjob(&mask);
   } else {

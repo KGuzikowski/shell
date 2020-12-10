@@ -246,9 +246,11 @@ void watchjobs(int which) {
         msg("[%d] suspended '%s'\n", j, command);
       } else if (state == FINISHED) {
         if (WIFEXITED(exitcode)) {
-          msg("[%d] exited '%s', status=%d\n", j, command, WEXITSTATUS(exitcode));
+          msg("[%d] exited '%s', status=%d\n", j, command,
+              WEXITSTATUS(exitcode));
         } else {
-          msg("[%d] killed '%s' by signal %d\n", j, command, WTERMSIG(exitcode));
+          msg("[%d] killed '%s' by signal %d\n", j, command,
+              WTERMSIG(exitcode));
         }
       }
     } else if (which == FINISHED && state == FINISHED) {
@@ -316,7 +318,7 @@ void shutdownjobs(void) {
 
   /* TODO: Kill remaining jobs and wait for them to finish. */
   for (int i = 0; i < njobmax; i++) {
-      if(killjob(i)) {
+    if (killjob(i)) {
       while (FINISHED != jobs[i].state) {
         sigsuspend(&mask);
       }
