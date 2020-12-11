@@ -78,11 +78,11 @@ static int do_job(token_t *token, int ntokens, bool bg) {
     /* Child:
      * Set signal control for the child. */
     Setpgid(0, 0);
-    Sigprocmask(SIG_SETMASK, &mask, NULL);
     Signal(SIGTTIN, SIG_DFL);
     Signal(SIGTTOU, SIG_DFL);
     Signal(SIGINT, SIG_DFL);
     Signal(SIGTSTP, SIG_DFL);
+    Sigprocmask(SIG_SETMASK, &mask, NULL);
 
     if (output != -1) {
       Dup2(output, STDOUT_FILENO);
