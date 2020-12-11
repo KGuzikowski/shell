@@ -77,6 +77,7 @@ static int do_job(token_t *token, int ntokens, bool bg) {
   if (pid == 0) {
     /* Child:
      * Set signal control for the child. */
+    Setpgid(0, 0);
     Sigprocmask(SIG_SETMASK, &mask, NULL);
     Signal(SIGTTIN, SIG_DFL);
     Signal(SIGTTOU, SIG_DFL);
@@ -131,19 +132,24 @@ static pid_t do_stage(pid_t pgid, sigset_t *mask, int input, int output,
   pid_t pid = Fork();
   if (0 == pid) {
     /* In the child*/
-    setpgid(0, pgid);
-    signal(SIGCHLD, SIG_DFL);
-    signal(SIGTSTP, SIG_DFL);
-    signal(SIGTTIN, SIG_DFL);
-    signal(SIGTTOU, SIG_DFL);
-    sigprocmask(SIG_SETMASK, mask, NULL);
+    if (!pgid) {
+      Setpgid(0, 0);
+    } else {
+      Setpgid(0, pgid);
+    }
+
+    Signal(SIGCHLD, SIG_DFL);
+    Signal(SIGTSTP, SIG_DFL);
+    Signal(SIGTTIN, SIG_DFL);
+    Signal(SIGTTOU, SIG_DFL);
+    Sigprocmask(SIG_SETMASK, mask, NULL);
 
     if (input != -1) {
-      dup2(input, STDIN_FILENO);
+      Dup2(input, STDIN_FILENO);
       MaybeClose(&input);
     }
     if (output != -1) {
-      dup2(output, STDOUT_FILENO);
+      Dup2(output, STDOUT_FILENO);
       MaybeClose(&output);
     }
 
@@ -154,7 +160,12 @@ static pid_t do_stage(pid_t pgid, sigset_t *mask, int input, int output,
 
     external_command(token);
   }
-  setpgid(pid, pgid);
+
+  if (!pgid) {
+    Setpgid(pid, pid);
+  } else {
+    Setpgid(pid, pgid);
+  }
 
   return pid;
 }
