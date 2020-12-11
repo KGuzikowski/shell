@@ -46,9 +46,9 @@ static void sigchld_handler(int sig) {
           job_no = i;
           break;
         }
-        if (done) {
-          break;
-        }
+      }
+      if (done) {
+        break;
       }
     }
 
