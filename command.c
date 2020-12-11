@@ -114,14 +114,13 @@ noreturn void external_command(char **argv) {
      * done*/
     /*While not \0 (end of string) do sth...*/
     while (*path) {
-      /*look for : in string to split sting there.*/
-      size_t i = strcspn(path, ":");
-      char *first_path = strndup(path, i);
+      size_t length = strcspn(path, ":");
+      char *first_path = strndup(path, length);
       strapp(&first_path, "/");
       strapp(&first_path, argv[0]);
       execve(first_path, argv, environ);
       free(first_path);
-      path += i + (i != strlen(path));
+      path += length + (length != strlen(path));
     }
   } else {
     (void)execve(argv[0], argv, environ);
