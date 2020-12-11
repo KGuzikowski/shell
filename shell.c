@@ -77,8 +77,7 @@ static int do_job(token_t *token, int ntokens, bool bg) {
   if (pid == 0) {
     /* Child:
      * Set signal control for the child. */
-    // Setpgid(0, 0);
-    setpgrp();
+    Setpgid(0, 0);
     Signal(SIGTTIN, SIG_DFL);
     Signal(SIGTTOU, SIG_DFL);
     Signal(SIGINT, SIG_DFL);

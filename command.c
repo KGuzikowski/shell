@@ -113,28 +113,18 @@ noreturn void external_command(char **argv) {
     /* TODO: For all paths in PATH construct an absolute path and execve it. -
      * done*/
     /*While not \0 (end of string) do sth...*/
-    // while (*path != '\0') {
-    //   /*look for : in string to split sting there.*/
-    //   int i = strcspn(path, ":");
-    //   if (i == strlen(path)) {
-    //     break;
-    //   }
-    //   char *first_path = strndup(path, i);
-    //   strapp(&first_path, "/");
-    //   strapp(&first_path, argv[0]);
-    //   execve(first_path, argv, environ);
-    //   /*free already checked part of string*/
-    //   free(first_path);
-    //   path += i + 1;
-    // }
     while (*path) {
-      size_t length = strcspn(path, ":");
-      char *direct = strndup(path, length);
-      strapp(&direct, "/");
-      strapp(&direct, argv[0]);
-      execve(direct, argv, environ);
-      free(direct);
-      path += length + (length != strlen(path));
+      /*look for : in string to split sting there.*/
+      int i = strcspn(path, ":");
+      if (i == strlen(path)) {
+        break;
+      }
+      char *first_path = strndup(path, i);
+      strapp(&first_path, "/");
+      strapp(&first_path, argv[0]);
+      execve(first_path, argv, environ);
+      free(first_path);
+      path += i + (i != strlen(path));
     }
   } else {
     (void)execve(argv[0], argv, environ);
