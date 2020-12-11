@@ -52,26 +52,61 @@ static void sigchld_handler(int sig) {
       }
     }
 
-    bool is_job_running = false;
-    bool is_job_stopped = false;
-    bool is_job_finished = false;
-    for (size_t j = 0; j < jobs[job_no].nproc; j++) {
-      proc_t *proc = &jobs[job_no].proc[j];
-      if (proc->state == RUNNING) {
-        is_job_running = true;
-      } else if (proc->state == STOPPED) {
-        is_job_stopped = true;
-      } else if (proc->state == FINISHED) {
-        is_job_finished = true;
+    // bool is_job_running = false;
+    // bool is_job_stopped = false;
+    // bool is_job_finished = false;
+    // for (size_t j = 0; j < jobs[job_no].nproc; j++) {
+    //   proc_t *proc = &jobs[job_no].proc[j];
+    //   if (proc->state == RUNNING) {
+    //     is_job_running = true;
+    //   } else if (proc->state == STOPPED) {
+    //     is_job_stopped = true;
+    //   } else if (proc->state == FINISHED) {
+    //     is_job_finished = true;
+    //   }
+    // }
+
+    // if (is_job_finished && !is_job_running && !is_job_stopped) {
+    //   jobs[job_no].state = FINISHED;
+    // } else if (is_job_stopped && !is_job_running && !is_job_finished) {
+    //   jobs[job_no].state = STOPPED;
+    // } else if (is_job_running && !is_job_finished && !is_job_stopped) {
+    //   jobs[job_no].state = RUNNING;
+    // }
+    unsigned int mask = 0;
+    job_t *job = &jobs[job_no];
+    for (int i = 0; i < job->nproc; i++) {
+      switch (job->proc[i].state) {
+        case FINISHED: {
+          mask = mask | 1;
+          break;
+        }
+        case STOPPED: {
+          mask = mask | 2;
+          break;
+        }
+        case RUNNING: {
+          mask = mask | 4;
+          break;
+        }
       }
     }
-
-    if (is_job_finished && !is_job_running && !is_job_stopped) {
-      jobs[job_no].state = FINISHED;
-    } else if (is_job_stopped && !is_job_running && !is_job_finished) {
-      jobs[job_no].state = STOPPED;
-    } else if (is_job_running && !is_job_finished && !is_job_stopped) {
-      jobs[job_no].state = RUNNING;
+    switch (mask) {
+      case 1: {
+        job->state = FINISHED;
+        break;
+      }
+      case 2: {
+        job->state = STOPPED;
+        break;
+      }
+      case 4: {
+        job->state = RUNNING;
+        break;
+      }
+      default: {
+        break;
+      }
     }
   }
   errno = old_errno;
