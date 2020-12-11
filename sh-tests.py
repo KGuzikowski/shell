@@ -319,7 +319,7 @@ class TestShellWithSyscalls(ShellTester, unittest.TestCase):
 
     def test_termattr_1(self):
         stty_before = self.stty()
-        self.sendline('less shell.c')
+        self.sendline('more shell.c')
         child = self.expect_spawn()['retval']
         self.sendline('q')
         self.expect_waitpid(pid=child, status=0)
@@ -329,7 +329,7 @@ class TestShellWithSyscalls(ShellTester, unittest.TestCase):
 
     def test_termattr_2(self):
         stty_before = self.stty()
-        self.sendline('less shell.c')
+        self.sendline('more shell.c')
         child = self.expect_spawn()['retval']
         time.sleep(0.25)
         self.sendcontrol('z')
@@ -337,7 +337,7 @@ class TestShellWithSyscalls(ShellTester, unittest.TestCase):
         self.sendline('kill %1')
         self.expect_waitpid(pid=child, status='SIGTERM')
         self.sendline('jobs')
-        self.expect_exact("[1] killed 'less shell.c' by signal 15")
+        self.expect_exact("[1] killed 'more shell.c' by signal 15")
         stty_after = self.stty()
         self.assertEqual(stty_before, stty_after)
 

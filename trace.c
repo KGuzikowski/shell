@@ -21,6 +21,7 @@ static int (*close_p)(int fd) = NULL;
 static int (*setpgid_p)(pid_t pid, pid_t pgid) = NULL;
 static int (*tcsetpgrp_p)(int fd, pid_t pgrp);
 static int (*tcsetattr_p)(int fd, int action, const struct termios *t);
+static int (*kill_p)(pid_t pid, int sig);
 
 static void xdlsym(const char *symbol, void **fn_p) {
   if (*fn_p == NULL) {
@@ -122,6 +123,13 @@ int setpgid(pid_t pid, pid_t pgid) {
   xdlsym("setpgid", (void **)&setpgid_p);
   int res = setpgid_p(pid, pgid);
   report("setpgid(%d, %d) = %d", pid, pgid, res);
+  return res;
+}
+
+int kill(pid_t pid, int sig) {
+  xdlsym("kill", (void **)&kill_p);
+  int res = kill_p(pid, sig);
+  report("kill(%d, %s) = %d", pid, signame[sig], res);
   return res;
 }
 
